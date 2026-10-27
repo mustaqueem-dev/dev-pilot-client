@@ -52,6 +52,16 @@ const STARTER_PROMPTS = [
   },
 ];
 
+let tempCounter = 0;
+function createTempId(prefix: string) {
+  tempCounter += 1;
+  return `${prefix}-${tempCounter}`;
+}
+
+function getIsoTimestamp() {
+  return new Date().toISOString();
+}
+
 export function ChatInterface({
   activeConversationId,
   onConversationCreated,
@@ -77,13 +87,20 @@ export function ChatInterface({
 
   // Fetch conversation history when active ID changes
   useEffect(() => {
+    let isMounted = true;
+
     if (!activeConversationId || !accessToken) {
-      setConversation(null);
-      setMessages([]);
-      return;
+      queueMicrotask(() => {
+        if (isMounted) {
+          setConversation(null);
+          setMessages([]);
+        }
+      });
+      return () => {
+        isMounted = false;
+      };
     }
 
-    let isMounted = true;
     setIsLoadingHistory(true);
     setErrorMessage(null);
 
@@ -133,18 +150,18 @@ export function ChatInterface({
 
       // 2. Optimistic user message
       const userMessage: ChatMessageDto = {
-        id: `user-${Date.now()}`,
+        id: createTempId("user"),
         role: "USER",
         content: text,
-        createdAt: new Date().toISOString(),
+        createdAt: getIsoTimestamp(),
       };
 
       // 3. Placeholder assistant message
       const assistantMessage: ChatMessageDto = {
-        id: `assistant-${Date.now()}`,
+        id: createTempId("assistant"),
         role: "ASSISTANT",
         content: "",
-        createdAt: new Date().toISOString(),
+        createdAt: getIsoTimestamp(),
       };
 
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
@@ -292,7 +309,7 @@ export function ChatInterface({
                   {/* Avatar */}
                   {isUser ? (
                     <Avatar className="size-8 shrink-0 ring-1 ring-border mt-0.5">
-                      <AvatarImage src={user?.avatarUrl} alt={user?.displayName || "User"} />
+                      <AvatarImage src={user?.avatarUrl || undefined} alt={user?.displayName || "User"} />
                       <AvatarFallback className="text-xs font-semibold">
                         {user?.displayName?.[0] || "U"}
                       </AvatarFallback>

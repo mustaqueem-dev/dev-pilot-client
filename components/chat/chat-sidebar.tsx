@@ -216,7 +216,7 @@ export function ChatSidebar({
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2.5 min-w-0">
             <Avatar className="size-8 ring-1 ring-border">
-              <AvatarImage src={user?.avatarUrl} alt={user?.displayName || user?.githubUsername} />
+              <AvatarImage src={user?.avatarUrl || undefined} alt={user?.displayName || user?.githubUsername} />
               <AvatarFallback className="text-xs font-semibold">
                 {user?.displayName?.[0] || user?.githubUsername?.[0] || "U"}
               </AvatarFallback>
