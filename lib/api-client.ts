@@ -1,4 +1,5 @@
 import { ApiResponse, AuthResponse, LoginUrlResponse, UserDto } from './types/auth';
+import { ChatMessageDto, ConversationDetailDto, ConversationDto } from './types/chat';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -27,7 +28,7 @@ async function fetchClient<T>(endpoint: string, options: RequestInit = {}): Prom
   const config: RequestInit = {
     ...options,
     headers,
-    credentials: 'include', // Crucial for HttpOnly cookies (refresh_token, oauth2_auth_state)
+    credentials: 'include', // Crucial for HttpOnly cookies (refresh_token)
   };
 
   try {
@@ -57,7 +58,7 @@ async function fetchClient<T>(endpoint: string, options: RequestInit = {}): Prom
 }
 
 export const authApi = {
-  // 1. Get GitHub OAuth Login URL (Sets oauth2_auth_state HttpOnly cookie)
+  // 1. Get GitHub OAuth Login URL
   getLoginUrl: async (): Promise<ApiResponse<LoginUrlResponse>> => {
     return fetchClient<LoginUrlResponse>('/api/v1/auth/login-url', {
       method: 'GET',
@@ -104,5 +105,110 @@ export const authApi = {
         Authorization: `Bearer ${accessToken}`,
       },
     });
+  },
+};
+
+export const chatApi = {
+  // 1. List user's conversations
+  listConversations: async (accessToken: string): Promise<ApiResponse<ConversationDto[]>> => {
+    return fetchClient<ConversationDto[]>('/api/v1/chat/conversations', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  },
+
+  // 2. Create new conversation thread
+  createConversation: async (accessToken: string, title?: string): Promise<ApiResponse<ConversationDto>> => {
+    return fetchClient<ConversationDto>('/api/v1/chat/conversations', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ title }),
+    });
+  },
+
+  // 3. Get conversation with full message history
+  getConversation: async (accessToken: string, id: string): Promise<ApiResponse<ConversationDetailDto>> => {
+    return fetchClient<ConversationDetailDto>(`/api/v1/chat/conversations/${id}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  },
+
+  // 4. Delete conversation
+  deleteConversation: async (accessToken: string, id: string): Promise<ApiResponse<null>> => {
+    return fetchClient<null>(`/api/v1/chat/conversations/${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  },
+
+  // 5. Send message synchronously
+  sendMessageSync: async (accessToken: string, conversationId: string, content: string): Promise<ApiResponse<ChatMessageDto>> => {
+    return fetchClient<ChatMessageDto>(`/api/v1/chat/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  // 6. Real-time token streaming via SSE ReadableStream
+  streamMessage: async (
+    accessToken: string,
+    conversationId: string,
+    content: string,
+    onChunk: (chunk: string) => void,
+    signal?: AbortSignal
+  ): Promise<void> => {
+    const url = `${API_BASE_URL}/api/v1/chat/conversations/${conversationId}/stream`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ content }),
+      credentials: 'include',
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Failed to stream response (HTTP ${response.status})`);
+    }
+
+    if (!response.body) {
+      throw new Error('Response body is null');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      // In Spring WebMVC SSE, chunks can be "data: <content>\n\n" or raw text chunks
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          const dataToken = line.slice(5);
+          onChunk(dataToken);
+        } else if (line.trim().length > 0 && !line.startsWith('event:') && !line.startsWith('id:')) {
+          onChunk(line);
+        }
+      }
+    }
   },
 };
